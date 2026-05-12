@@ -1,24 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSmartStore } from '../store/useSmartStore';
 
 // 支付方式图标
 const payIcons = { alipay: '🔵', wechat: '🟢', campus: '🏫' };
 const payLabels = { alipay: '支付宝', wechat: '微信支付', campus: '校园一卡通' };
+const qrCodes = { alipay: 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=alipay://', wechat: 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=weixin://', campus: 'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=campus://' };
 
 // 记录类型样式
 const typeStyle = {
   recharge: { color: '#3fb950', label: '充值', bg: 'rgba(63,185,80,0.1)' },
   consume:  { color: '#f85149', label: '消费', bg: 'rgba(248,81,73,0.1)'  },
   points:   { color: '#d29922', label: '积分', bg: 'rgba(210,153,34,0.1)' },
-};
-
-// 真实支付状态
-const PAY_STATUS = {
-  IDLE: 'idle',
-  CREATING: 'creating',
-  PENDING: 'pending',
-  SUCCESS: 'success',
-  ERROR: 'error',
 };
 
 export default function RechargePage() {
@@ -31,91 +23,77 @@ export default function RechargePage() {
   const [payMethod, setPayMethod] = useState('alipay');
   const [tab, setTab] = useState('recharge');
   const [redeemInput, setRedeemInput] = useState(100);
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [lastRechargeInfo, setLastRechargeInfo] = useState(null);
   const [showRedeemSuccess, setShowRedeemSuccess] = useState(false);
 
-  // 真实支付相关状态
-  const [payStatus, setPayStatus] = useState(PAY_STATUS.IDLE);
-  const [payResult, setPayResult] = useState(null);
-  const [payError, setPayError] = useState('');
-  const [showQR, setShowQR] = useState(false);
-
-  // 后端 API 地址（本地开发用 3000，生产环境用你的服务器地址）
-  const API_BASE = 'http://localhost:3000';
+  // 模拟支付弹窗状态
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [payStep, setPayStep] = useState('confirm'); // confirm | qr | processing | success | fail
+  const [countdown, setCountdown] = useState(3);
+  const [orderNo, setOrderNo] = useState('');
 
   const plan = rechargePlans.find(p => p.id === selectedPlan);
   const daysLeft = electricAccount.dailyRate > 0
     ? Math.floor(electricAccount.balance / electricAccount.dailyRate)
     : 999;
 
-  // 真实支付充值（调用后端 → 虎皮椒）
-  const handleRealPay = async () => {
-    if (!plan) return;
-    setPayStatus(PAY_STATUS.CREATING);
-    setPayError('');
+  const balanceColor = electricAccount.balance < 5
+    ? '#f85149'
+    : electricAccount.balance < 20
+      ? '#d29922'
+      : '#3fb950';
 
-    try {
-      const response = await fetch(`${API_BASE}/api/create-order`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: plan.amount,
-          planName: plan.label,
-          userId: 'student_001',
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setPayResult(data);
-        setPayStatus(PAY_STATUS.PENDING);
-        setShowQR(true);
-
-        // 轮询查询订单状态（3秒一次，最多查20次=60秒）
-        let attempts = 0;
-        const pollOrder = async () => {
-          attempts++;
-          try {
-            const res = await fetch(`${API_BASE}/api/order/${data.orderNo}`);
-            const order = await res.json();
-            if (order.status === 'paid') {
-              setPayStatus(PAY_STATUS.SUCCESS);
-              setShowQR(false);
-              // 模拟充值成功更新 Store
-              doRecharge(selectedPlan);
-              setLastRechargeInfo({ plan, payMethod });
-              setShowSuccess(true);
-              setTimeout(() => setShowSuccess(false), 4000);
-              return;
-            }
-          } catch (e) { /* ignore */ }
-
-          if (attempts < 20 && payStatus === PAY_STATUS.PENDING) {
-            setTimeout(pollOrder, 3000);
+  // 倒计时效果
+  useEffect(() => {
+    if (payStep === 'processing') {
+      const timer = setInterval(() => {
+        setCountdown(prev => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            handlePaySuccess();
+            return 0;
           }
-        };
-
-        setTimeout(pollOrder, 3000);
-      } else {
-        setPayError(data.error || '创建订单失败');
-        setPayStatus(PAY_STATUS.ERROR);
-      }
-    } catch (err) {
-      console.error('支付请求失败:', err);
-      setPayError('无法连接支付服务，请确认后端服务已启动');
-      setPayStatus(PAY_STATUS.ERROR);
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(timer);
     }
+  }, [payStep]);
+
+  // 打开支付确认弹窗
+  const handleOpenPay = () => {
+    if (!plan) return;
+    setOrderNo(`SD${Date.now()}`);
+    setPayStep('confirm');
+    setShowPayModal(true);
   };
 
-  // 模拟充值（保持原有功能，不调用真实支付）
-  const handleMockRecharge = () => {
-    if (!plan) return;
+  // 显示二维码
+  const handleShowQR = () => {
+    setPayStep('qr');
+  };
+
+  // 模拟支付成功
+  const handlePaySuccess = () => {
+    setPayStep('success');
     doRecharge(selectedPlan);
-    setLastRechargeInfo({ plan, payMethod });
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
+    setTimeout(() => {
+      setShowPayModal(false);
+      setPayStep('confirm');
+    }, 2000);
+  };
+
+  // 模拟支付失败
+  const handlePayFail = () => {
+    setPayStep('fail');
+    setTimeout(() => {
+      setPayStep('confirm');
+    }, 2000);
+  };
+
+  // 关闭弹窗
+  const handleCloseModal = () => {
+    setShowPayModal(false);
+    setPayStep('confirm');
   };
 
   const handleRedeem = () => {
@@ -125,12 +103,6 @@ export default function RechargePage() {
     setTimeout(() => setShowRedeemSuccess(false), 2500);
   };
 
-  const balanceColor = electricAccount.balance < 5
-    ? '#f85149'
-    : electricAccount.balance < 20
-      ? '#d29922'
-      : '#3fb950';
-
   return (
     <div className="page-enter">
       <div className="page-header">
@@ -138,28 +110,7 @@ export default function RechargePage() {
         <p>余额管理 · 智能充值 · 积分返利</p>
       </div>
 
-      {/* 成功提示 */}
-      {showSuccess && lastRechargeInfo && (
-        <div style={{
-          position: 'fixed', top: 80, right: 24, zIndex: 999,
-          background: 'linear-gradient(135deg, #1a3a1a, #0d2a0d)',
-          border: '1px solid rgba(63,185,80,0.4)',
-          borderRadius: 12, padding: '14px 20px',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-          color: '#3fb950', fontWeight: 600, fontSize: 14,
-          display: 'flex', alignItems: 'center', gap: 10,
-          animation: 'fadeIn 0.3s ease',
-        }}>
-          <span style={{ fontSize: 20 }}>✅</span>
-          <div>
-            <div>充值成功！+{lastRechargeInfo.plan.amount + lastRechargeInfo.plan.bonus}元</div>
-            <div style={{ fontSize: 12, color: '#8b949e', marginTop: 2 }}>
-              赠送 {lastRechargeInfo.plan.points} 积分 · {payLabels[payMethod]} 支付
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* 积分兑换成功提示 */}
       {showRedeemSuccess && (
         <div style={{
           position: 'fixed', top: 80, right: 24, zIndex: 999,
@@ -175,100 +126,188 @@ export default function RechargePage() {
         </div>
       )}
 
-      {/* 真实支付弹窗 */}
-      {showQR && payResult && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 500,
-          background: 'rgba(0,0,0,0.7)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
+      {/* 支付弹窗 */}
+      {showPayModal && (
+        <>
           <div style={{
-            background: '#1c2230', borderRadius: 16,
-            padding: 32, textAlign: 'center', maxWidth: 360, width: '90%',
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+            zIndex: 998, backdropFilter: 'blur(4px)',
+          }} onClick={handleCloseModal} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: 360, background: 'var(--bg-secondary)',
+            borderRadius: 20, padding: 0, zIndex: 999,
+            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
             border: '1px solid var(--border)',
+            overflow: 'hidden',
           }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>
-              {payMethod === 'alipay' ? '💙' : '💚'}
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
-              {payMethod === 'alipay' ? '支付宝支付' : '微信支付'}
-            </div>
-            <div style={{ fontSize: 14, color: '#8b949e', marginBottom: 20 }}>
-              订单号：{payResult.orderNo}<br/>
-              应付金额：<span style={{ color: '#f85149', fontWeight: 700 }}>¥{plan?.amount}</span>
+            {/* 弹窗标题栏 */}
+            <div style={{
+              padding: '16px 20px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: payStep === 'success' ? 'rgba(63,185,80,0.15)' :
+                           payStep === 'fail' ? 'rgba(248,81,73,0.15)' : 'transparent',
+            }}>
+              <div>
+                {payStep === 'confirm' && <span style={{ fontSize: 15, fontWeight: 600 }}>确认支付</span>}
+                {payStep === 'qr' && <span style={{ fontSize: 15, fontWeight: 600 }}>{payLabels[payMethod]} 支付</span>}
+                {payStep === 'processing' && <span style={{ fontSize: 15, fontWeight: 600 }}>支付处理中</span>}
+                {payStep === 'success' && <span style={{ fontSize: 15, fontWeight: 600, color: '#3fb950' }}>✅ 支付成功</span>}
+                {payStep === 'fail' && <span style={{ fontSize: 15, fontWeight: 600, color: '#f85149' }}>❌ 支付失败</span>}
+              </div>
+              <button onClick={handleCloseModal} style={{
+                background: 'none', border: 'none', color: '#8b949e',
+                fontSize: 20, cursor: 'pointer', padding: 4,
+              }}>×</button>
             </div>
 
-            {/* 二维码区域 */}
-            {payResult.qrcode ? (
-              <div style={{
-                background: '#fff', borderRadius: 12,
-                padding: 12, display: 'inline-block', marginBottom: 16,
-              }}>
-                <img
-                  src={payResult.qrcode}
-                  alt="支付二维码"
-                  style={{ width: 200, height: 200, display: 'block' }}
-                />
-              </div>
-            ) : (
-              <div style={{
-                background: 'var(--bg-secondary)', borderRadius: 12,
-                padding: 24, marginBottom: 16,
-              }}>
-                <div style={{ fontSize: 14, color: '#8b949e' }}>
-                  请使用{payMethod === 'alipay' ? '支付宝' : '微信'}扫码支付
+            {/* 确认支付 */}
+            {payStep === 'confirm' && (
+              <div style={{ padding: 24 }}>
+                <div style={{ textAlign: 'center', marginBottom: 20 }}>
+                  <div style={{ fontSize: 14, color: '#8b949e', marginBottom: 8 }}>支付金额</div>
+                  <div style={{ fontSize: 36, fontWeight: 700, color: '#fff' }}>
+                    ¥{plan ? plan.amount : 0}.00
+                  </div>
+                  <div style={{ fontSize: 13, color: '#6e7681', marginTop: 6 }}>
+                    订单号：{orderNo}
+                  </div>
                 </div>
-                {payResult.payUrl && (
-                  <a
-                    href={payResult.payUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      display: 'inline-block', marginTop: 12, padding: '10px 20px',
-                      background: payMethod === 'alipay' ? '#1677ff' : '#07c160',
-                      color: '#fff', borderRadius: 8, textDecoration: 'none',
-                      fontSize: 14, fontWeight: 600,
-                    }}
-                  >
-                    打开{payMethod === 'alipay' ? '支付宝' : '微信'}支付
-                  </a>
-                )}
+
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, color: '#8b949e', marginBottom: 10 }}>支付方式</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {['alipay', 'wechat'].map(m => (
+                      <div
+                        key={m} onClick={() => setPayMethod(m)}
+                        style={{
+                          flex: 1, padding: '14px 10px', borderRadius: 12,
+                          border: `2px solid ${payMethod === m ? '#58a6ff' : 'var(--border-light)'}`,
+                          background: payMethod === m ? 'rgba(88,166,255,0.1)' : 'transparent',
+                          cursor: 'pointer', textAlign: 'center',
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        <div style={{ fontSize: 28, marginBottom: 4 }}>{payIcons[m]}</div>
+                        <div style={{ fontSize: 12, color: payMethod === m ? '#58a6ff' : '#8b949e' }}>
+                          {payLabels[m]}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 12, color: '#6e7681', marginBottom: 16, lineHeight: 1.7, textAlign: 'center' }}>
+                  {payMethod === 'alipay' ? '📌 本演示使用支付宝沙箱环境' : '📌 本演示使用微信支付测试环境'}
+                  <br/>
+                  <span style={{ color: '#d29922' }}>⚠️ 此为演示模式，不产生真实交易</span>
+                </div>
+
+                <button onClick={handleShowQR} style={{
+                  width: '100%', padding: '14px', borderRadius: 12, border: 'none',
+                  background: 'linear-gradient(135deg, #58a6ff, #1f6feb)',
+                  color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}>
+                  确认支付 ¥{plan ? plan.amount : 0}
+                </button>
               </div>
             )}
 
-            {/* 状态指示 */}
-            <div style={{
-              padding: '8px 16px', borderRadius: 20,
-              background: payStatus === PAY_STATUS.SUCCESS
-                ? 'rgba(63,185,80,0.15)'
-                : 'rgba(88,166,255,0.15)',
-              color: payStatus === PAY_STATUS.SUCCESS ? '#3fb950' : '#58a6ff',
-              fontSize: 13, fontWeight: 600,
-            }}>
-              {payStatus === PAY_STATUS.PENDING && '⏳ 等待支付中...（请在60秒内完成支付）'}
-              {payStatus === PAY_STATUS.SUCCESS && '✅ 支付成功！'}
-            </div>
+            {/* 扫码支付 */}
+            {payStep === 'qr' && (
+              <div style={{ padding: 24, textAlign: 'center' }}>
+                <div style={{ fontSize: 28, marginBottom: 4 }}>{payIcons[payMethod]}</div>
+                <div style={{ fontSize: 13, color: '#8b949e', marginBottom: 16 }}>
+                  请使用{payLabels[payMethod]}扫码支付
+                </div>
+                <div style={{
+                  background: '#fff', borderRadius: 12, padding: 16,
+                  display: 'inline-block', marginBottom: 16,
+                }}>
+                  <img
+                    src={qrCodes[payMethod]}
+                    alt="支付二维码"
+                    style={{ width: 180, height: 180, display: 'block' }}
+                  />
+                </div>
+                <div style={{ fontSize: 14, color: '#fff', fontWeight: 600, marginBottom: 8 }}>
+                  ¥{plan ? plan.amount : 0}.00
+                </div>
+                <div style={{ fontSize: 12, color: '#6e7681', marginBottom: 16 }}>
+                  二维码有效期 5 分钟
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={handleCloseModal} style={{
+                    flex: 1, padding: '12px', borderRadius: 10, border: '1px solid var(--border)',
+                    background: 'transparent', color: '#8b949e', fontSize: 13,
+                    cursor: 'pointer',
+                  }}>
+                    取消
+                  </button>
+                  <button onClick={() => setPayStep('processing')} style={{
+                    flex: 2, padding: '12px', borderRadius: 10, border: 'none',
+                    background: 'var(--bg-card)', color: '#fff', fontSize: 13,
+                    cursor: 'pointer',
+                  }}>
+                    模拟已支付 →
+                  </button>
+                </div>
+              </div>
+            )}
 
-            <div style={{ marginTop: 16 }}>
-              <button onClick={() => { setShowQR(false); setPayStatus(PAY_STATUS.IDLE); }}
-                style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid var(--border)',
-                  background: 'var(--bg-secondary)', color: '#8b949e', cursor: 'pointer' }}>
-                取消
-              </button>
-            </div>
+            {/* 支付中 */}
+            {payStep === 'processing' && (
+              <div style={{ padding: 40, textAlign: 'center' }}>
+                <div style={{
+                  width: 60, height: 60, borderRadius: '50%',
+                  border: '3px solid rgba(88,166,255,0.3)',
+                  borderTopColor: '#58a6ff',
+                  margin: '0 auto 20px',
+                  animation: 'spin 1s linear infinite',
+                }} />
+                <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>
+                  正在确认支付...
+                </div>
+                <div style={{ fontSize: 13, color: '#8b949e' }}>
+                  请稍候，预计 {countdown} 秒完成
+                </div>
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+              </div>
+            )}
+
+            {/* 支付成功 */}
+            {payStep === 'success' && (
+              <div style={{ padding: 40, textAlign: 'center' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#3fb950', marginBottom: 8 }}>
+                  支付成功！
+                </div>
+                <div style={{ fontSize: 14, color: '#8b949e' }}>
+                  已到账 ¥{(plan ? plan.amount + plan.bonus : 0).toFixed(2)}
+                </div>
+                <div style={{ fontSize: 12, color: '#6e7681', marginTop: 4 }}>
+                  赠送 {plan ? plan.points : 0} 积分
+                </div>
+              </div>
+            )}
+
+            {/* 支付失败 */}
+            {payStep === 'fail' && (
+              <div style={{ padding: 40, textAlign: 'center' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>😢</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#f85149', marginBottom: 8 }}>
+                  支付失败
+                </div>
+                <div style={{ fontSize: 13, color: '#8b949e' }}>
+                  订单已超时，请重新发起支付
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
-
-      {/* 错误提示 */}
-      {payError && (
-        <div style={{
-          marginBottom: 16, padding: '12px 16px', borderRadius: 10,
-          background: 'rgba(248,81,73,0.1)', border: '1px solid rgba(248,81,73,0.3)',
-          color: '#f85149', fontSize: 13,
-        }}>
-          ❌ {payError}
-        </div>
+        </>
       )}
 
       <div className="page-content">
@@ -416,7 +455,7 @@ export default function RechargePage() {
             <div>
               <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-header">
-                  <div className="card-title">选择支付方式</div>
+                  <div className="card-title">支付方式</div>
                 </div>
                 {['alipay', 'wechat', 'campus'].map(m => (
                   <div
@@ -451,47 +490,16 @@ export default function RechargePage() {
                 💡 赠送余额与积分根据套餐自动发放
               </div>
 
-              {/* 真实支付按钮 */}
-              <button
-                onClick={handleRealPay}
-                disabled={payStatus === PAY_STATUS.CREATING}
-                style={{
-                  width: '100%', padding: '16px', borderRadius: 12, border: 'none',
-                  background: payStatus === PAY_STATUS.CREATING
-                    ? '#3a5a8a'
-                    : 'linear-gradient(135deg, #58a6ff, #1f6feb)',
-                  color: '#fff', fontSize: 16, fontWeight: 700,
-                  cursor: payStatus === PAY_STATUS.CREATING ? 'wait' : 'pointer',
-                  letterSpacing: 1,
-                  boxShadow: '0 4px 20px rgba(88,166,255,0.3)',
-                  transition: 'all 0.2s',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                }}
-              >
-                {payStatus === PAY_STATUS.CREATING ? (
-                  <>⏳ 创建支付订单中...</>
-                ) : (
-                  <>💳 立即支付 ¥{plan ? plan.amount : '—'} →</>
-                )}
-              </button>
-
-              {/* 分隔线 */}
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 12,
-                margin: '16px 0', color: '#6e7681', fontSize: 12,
+              {/* 立即充值按钮 */}
+              <button onClick={handleOpenPay} style={{
+                width: '100%', padding: '16px', borderRadius: 12, border: 'none',
+                background: 'linear-gradient(135deg, #58a6ff, #1f6feb)',
+                color: '#fff', fontSize: 16, fontWeight: 700,
+                cursor: 'pointer', letterSpacing: 1,
+                boxShadow: '0 4px 20px rgba(88,166,255,0.3)',
+                transition: 'all 0.2s',
               }}>
-                <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
-                或
-                <div style={{ flex: 1, height: 1, background: 'var(--border-light)' }} />
-              </div>
-
-              {/* 模拟充值（仅演示用） */}
-              <button onClick={handleMockRecharge} style={{
-                width: '100%', padding: '10px', borderRadius: 10, border: '1px solid var(--border)',
-                background: 'var(--bg-secondary)', color: '#8b949e', fontSize: 13,
-                cursor: 'pointer', transition: 'all 0.2s',
-              }}>
-                🎭 模拟充值（仅演示，不真实扣款）
+                立即充值 ¥{plan ? plan.amount : '—'} →
               </button>
 
               {/* 推广说明 */}
@@ -619,12 +627,14 @@ export default function RechargePage() {
                   display: 'flex', alignItems: 'center', gap: 12, padding: '14px 0',
                   borderBottom: '1px solid var(--border-light)',
                 }}>
+                  {/* 类型图标 */}
                   <div style={{
                     width: 40, height: 40, borderRadius: 10, fontSize: 18, flexShrink: 0,
                     background: ts.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
                     {rec.type === 'recharge' ? '💳' : rec.type === 'points' ? '⭐' : '⚡'}
                   </div>
+                  {/* 描述 */}
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{rec.desc}</div>
                     <div style={{ fontSize: 12, color: '#6e7681', marginTop: 3 }}>
@@ -636,6 +646,7 @@ export default function RechargePage() {
                       )}
                     </div>
                   </div>
+                  {/* 金额 */}
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: ts.color }}>
                       {rec.amount > 0 ? `+¥${rec.amount.toFixed(2)}` : rec.amount < 0 ? `-¥${Math.abs(rec.amount).toFixed(2)}` : '—'}
@@ -691,7 +702,7 @@ export default function RechargePage() {
                 { title: '积分稀释盈利', icon: '⭐', color: '#d29922',
                   desc: '充值 ¥100 送 140 积分，但 100积分=¥1，即¥1.4。实际电费赠送价值 ¥6，积分价值¥1.4，总赠出价值仅 ¥7.4 < 声称优惠价值' },
                 { title: '广告联名变现', icon: '📢', color: '#bc8cff',
-                  desc: '充值页面展示校内品牌广告位（奶茶、外卖等），或与学校合作福利套餐，平台抽取佣金' },
+                  desc: '充值页面展示校内品牌广告位（奶茶、外卖、打印店等），或与学校合作福利套餐，平台抽取佣金' },
                 { title: '沉淀资金收益', icon: '🏦', color: '#ff7b72',
                   desc: '用户预充但未消费的余额产生资金沉淀，平台可对这部分资金进行短期理财，获取无风险利息收入' },
               ].map(item => (
