@@ -1,5 +1,6 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { useSmartStore } from '../store/useSmartStore';
+import { useAuthStore } from '../store/useAuthStore';
 
 const navItems = [
   { path: '/', icon: '🏠', label: '首页概览' },
@@ -12,9 +13,11 @@ const navItems = [
 ];
 
 export default function Sidebar() {
-  const { user, unreadCount, electricAccount } = useSmartStore();
-  const location = useLocation();
+  const { unreadCount, electricAccount } = useSmartStore();
+  const { currentUser } = useAuthStore();
   const lowBalance = electricAccount.balance < 20;
+
+  const displayUser = currentUser || { nickname: '未登录', avatar: '👤', role: '-', dormLabel: '-' };
 
   return (
     <aside className="sidebar">
@@ -60,10 +63,10 @@ export default function Sidebar() {
         </div>
 
         <div className="user-mini">
-          <div className="user-mini-avatar">{user.avatar}</div>
+          <div className="user-mini-avatar">{displayUser.avatar}</div>
           <div className="user-mini-info">
-            <p>{user.name}</p>
-            <span>{user.role}</span>
+            <p>{displayUser.nickname}</p>
+            <span style={{ fontSize: 10, opacity: 0.7 }}>{displayUser.dormLabel || displayUser.role}</span>
           </div>
         </div>
       </div>

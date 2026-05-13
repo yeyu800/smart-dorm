@@ -1,4 +1,7 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useSmartStore } from '../store/useSmartStore';
+import { useAuthStore, BUILDINGS, getRooms } from '../store/useAuthStore';
 
 const settingGroups = [
   {
@@ -26,8 +29,48 @@ const settingGroups = [
   },
 ];
 
+const AVATARS = ['🧑‍💻', '👨‍🎓', '👩‍🎓', '🧑‍🔬', '👨‍💻', '👩‍💻', '🧑', '👤'];
+
 export default function ProfilePage() {
-  const { user, notifications, unreadCount, markAllRead, markRead } = useSmartStore();
+  const { notifications, unreadCount, markAllRead, markRead } = useSmartStore();
+  const { currentUser, updateDorm, updateProfile, logout } = useAuthStore();
+  const navigate = useNavigate();
+
+  const [editingDorm, setEditingDorm] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [dormForm, setDormForm] = useState({ building: currentUser?.building || '', room: currentUser?.room || '' });
+  const [profileForm, setProfileForm] = useState({
+    nickname: currentUser?.nickname || '',
+    avatar: currentUser?.avatar || '🧑‍💻',
+    role: currentUser?.role || '宿舍成员',
+  });
+  const [dormMsg, setDormMsg] = useState('');
+
+  const selectedBuilding = BUILDINGS.find(b => b.id === dormForm.building);
+  const rooms = selectedBuilding ? getRooms(selectedBuilding.floors) : [];
+
+  const handleSaveDorm = () => {
+    if (!dormForm.building || !dormForm.room) {
+      setDormMsg('请选择楼栋和房间号');
+      return;
+    }
+    updateDorm(dormForm);
+    setEditingDorm(false);
+    setDormMsg('✅ 宿舍信息已更新');
+    setTimeout(() => setDormMsg(''), 2000);
+  };
+
+  const handleSaveProfile = () => {
+    updateProfile(profileForm);
+    setEditingProfile(false);
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  const user = currentUser || { nickname: '未知用户', dormLabel: '未绑定', avatar: '👤', role: '宿舍成员', joined: '-' };
 
   return (
     <div className="page-enter">
@@ -41,25 +84,163 @@ export default function ProfilePage() {
           {/* 左栏：个人资料 + 设置 */}
           <div>
             {/* 个人资料卡 */}
-            <div className="profile-card" style={{ marginBottom: 16 }}>
-              <div className="profile-avatar">{user.avatar}</div>
-              <div className="profile-name">{user.name}</div>
-              <div className="profile-role">{user.role}</div>
-              <div className="profile-dorm">📍 {user.dorm}</div>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 20, marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent-blue)' }}>8</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>接入设备</div>
+            <div className="profile-card" style={{ marginBottom: 16, position: 'relative' }}>
+              {/* 编辑按钮 */}
+              <button
+                onClick={() => setEditingProfile(!editingProfile)}
+                style={{
+                  position: 'absolute', top: 14, right: 14,
+                  background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 8, padding: '4px 10px', color: 'var(--text-secondary)',
+                  fontSize: 12, cursor: 'pointer',
+                }}
+              >
+                {editingProfile ? '取消' : '✏️ 编辑'}
+              </button>
+
+              {editingProfile ? (
+                /* 编辑模式 */
+                <div style={{ textAlign: 'left', padding: '0 4px' }}>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10 }}>选择头像</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
+                    {AVATARS.map(a => (
+                      <button
+                        key={a}
+                        onClick={() => setProfileForm(f => ({ ...f, avatar: a }))}
+                        style={{
+                          fontSize: 26, background: profileForm.avatar === a ? 'var(--accent-blue)' : 'rgba(255,255,255,0.05)',
+                          border: profileForm.avatar === a ? '2px solid var(--accent-blue)' : '2px solid transparent',
+                          borderRadius: 12, width: 46, height: 46, cursor: 'pointer',
+                        }}
+                      >
+                        {a}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    className="form-input"
+                    style={{ marginBottom: 10 }}
+                    placeholder="昵称"
+                    value={profileForm.nickname}
+                    onChange={e => setProfileForm(f => ({ ...f, nickname: e.target.value }))}
+                  />
+                  <input
+                    className="form-input"
+                    style={{ marginBottom: 14 }}
+                    placeholder="身份（如 宿舍长）"
+                    value={profileForm.role}
+                    onChange={e => setProfileForm(f => ({ ...f, role: e.target.value }))}
+                  />
+                  <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleSaveProfile}>
+                    保存资料
+                  </button>
                 </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent-green)' }}>4</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>场景模式</div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent-yellow)' }}>15.5%</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>节能率</div>
-                </div>
+              ) : (
+                /* 查看模式 */
+                <>
+                  <div className="profile-avatar">{user.avatar}</div>
+                  <div className="profile-name">{user.nickname}</div>
+                  <div className="profile-role">{user.role}</div>
+                  <div className="profile-dorm">📍 {user.dormLabel || '未绑定宿舍'}</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 20, marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent-blue)' }}>8</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>接入设备</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent-green)' }}>4</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>场景模式</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent-yellow)' }}>15.5%</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>节能率</div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 宿舍绑定卡片 */}
+            <div className="card" style={{ marginBottom: 12 }}>
+              <div className="card-header">
+                <div className="card-title">🏠 宿舍绑定</div>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12 }}
+                  onClick={() => { setEditingDorm(!editingDorm); setDormMsg(''); }}
+                >
+                  {editingDorm ? '取消' : '修改'}
+                </button>
               </div>
+
+              {dormMsg && (
+                <div style={{
+                  background: dormMsg.startsWith('✅') ? 'rgba(74,222,128,0.1)' : 'rgba(239,68,68,0.1)',
+                  color: dormMsg.startsWith('✅') ? 'var(--accent-green)' : 'var(--accent-red)',
+                  padding: '8px 12px', borderRadius: 8, fontSize: 13, marginBottom: 10,
+                }}>
+                  {dormMsg}
+                </div>
+              )}
+
+              {editingDorm ? (
+                <div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 10 }}>选择楼栋</div>
+                  <div className="building-grid" style={{ marginBottom: 14 }}>
+                    {BUILDINGS.map(b => (
+                      <button
+                        key={b.id}
+                        className={`building-btn ${dormForm.building === b.id ? 'selected' : ''}`}
+                        onClick={() => setDormForm(f => ({ ...f, building: b.id, room: '' }))}
+                      >
+                        <span className="building-id">{b.id}栋</span>
+                        <span className="building-name">{b.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {dormForm.building && (
+                    <>
+                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>选择房间号</div>
+                      <select
+                        className="form-input form-select"
+                        style={{ marginBottom: 14 }}
+                        value={dormForm.room}
+                        onChange={e => setDormForm(f => ({ ...f, room: e.target.value }))}
+                      >
+                        <option value="">-- 请选择房间 --</option>
+                        {rooms.map(r => (
+                          <option key={r} value={r}>{r}室</option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                  {dormForm.building && dormForm.room && (
+                    <div className="dorm-preview" style={{ marginBottom: 12 }}>
+                      <span>📍 新宿舍：</span>
+                      <strong>{selectedBuilding?.name} {dormForm.room}室</strong>
+                    </div>
+                  )}
+                  <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleSaveDorm}>
+                    确认绑定
+                  </button>
+                </div>
+              ) : (
+                <div style={{ padding: '6px 0' }}>
+                  {[
+                    ['当前宿舍', user.dormLabel || '未绑定'],
+                    ['入住时间', user.joined || '-'],
+                    ['账号', currentUser?.username || '-'],
+                  ].map(([k, v]) => (
+                    <div key={k} style={{
+                      display: 'flex', justifyContent: 'space-between',
+                      padding: '9px 0', borderBottom: '1px solid var(--border-light)', fontSize: 13,
+                    }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
+                      <span>{v}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* 设置分组 */}
@@ -74,14 +255,24 @@ export default function ProfilePage() {
                       <div className="setting-label">{item.label}</div>
                       <div className="setting-sub">{item.sub}</div>
                     </div>
-                    <button
-                      className={`toggle ${item.value ? 'on' : ''}`}
-                      style={{ cursor: 'pointer' }}
-                    />
+                    <button className={`toggle ${item.value ? 'on' : ''}`} style={{ cursor: 'pointer' }} />
                   </div>
                 ))}
               </div>
             ))}
+
+            {/* 登出按钮 */}
+            <button
+              onClick={handleLogout}
+              style={{
+                width: '100%', padding: '12px', background: 'rgba(239,68,68,0.1)',
+                border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12,
+                color: 'var(--accent-red)', fontSize: 14, cursor: 'pointer',
+                fontWeight: 600, marginBottom: 16,
+              }}
+            >
+              🚪 退出登录
+            </button>
           </div>
 
           {/* 右栏：通知中心 */}
@@ -121,8 +312,7 @@ export default function ProfilePage() {
                   {!n.read && (
                     <div style={{
                       width: 6, height: 6, borderRadius: '50%',
-                      background: 'var(--accent-blue)',
-                      flexShrink: 0, marginTop: 4,
+                      background: 'var(--accent-blue)', flexShrink: 0, marginTop: 4,
                     }} />
                   )}
                 </div>
@@ -138,15 +328,13 @@ export default function ProfilePage() {
                 ['系统版本', 'v2.4.0'],
                 ['固件版本', '1.8.3'],
                 ['网关连接', '正常 · 延迟 12ms'],
-                ['数据更新', '2026-05-12 09:45'],
-                ['宿舍编号', user.dorm],
-                ['入住时间', user.joined],
+                ['数据更新', '2026-05-13 18:00'],
+                ['宿舍编号', user.dormLabel || '未绑定'],
+                ['入住时间', user.joined || '-'],
               ].map(([k, v]) => (
                 <div key={k} style={{
                   display: 'flex', justifyContent: 'space-between',
-                  padding: '9px 0',
-                  borderBottom: '1px solid var(--border-light)',
-                  fontSize: 13,
+                  padding: '9px 0', borderBottom: '1px solid var(--border-light)', fontSize: 13,
                 }}>
                   <span style={{ color: 'var(--text-secondary)' }}>{k}</span>
                   <span>{v}</span>
